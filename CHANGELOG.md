@@ -1,5 +1,14 @@
 # Changelog
 
+## v2.0
+
+- New: Home Assistant blueprint (`blueprints/flightdisplay.yaml`) as the recommended way to run FlightDisplay – no Node-RED needed
+- Uses the free Flightradar24 HACS integration instead of adsb.lol / adsbdb.com (route data included, rate limits handled by the integration)
+- New: 8×8 flag icons as GIF files for the AWTRIX (`icons/awtrix_flags.zip`, 24 countries + fallback plane icon) instead of drawing flags in code
+- Quiet hours, sound and display duration configurable directly in the blueprint – no helpers required
+- Optional recorder exclusion to keep flight data out of the Home Assistant database
+- README rewritten in English, Node-RED flow kept as legacy option
+
 ## v1.1
 
 **Deutsch**

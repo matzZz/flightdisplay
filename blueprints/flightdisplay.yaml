@@ -1,0 +1,152 @@
+blueprint:
+  name: "FlightDisplay: Who's flying over me?"
+  description: >
+    Shows aircraft entering the radius of the Flightradar24 integration on your
+    AWTRIX, including callsign, route and a flag icon of the destination country.
+
+
+    **Requirements**
+
+    - HACS integration [Flightradar24](https://github.com/AlexandrErohin/home-assistant-flightradar24)
+      (set your coordinates and radius there – note: the radius is in **meters**)
+
+    - MQTT integration connected to the broker your AWTRIX uses
+
+    - Flag icons uploaded to the AWTRIX (`flag-DE.gif`, `flag-FR.gif`, …),
+      see https://github.com/matzZz/flightdisplay
+  domain: automation
+  author: matzZz
+  source_url: https://github.com/matzZz/flightdisplay/blob/main/blueprints/flightdisplay.yaml
+  input:
+    awtrix:
+      name: AWTRIX
+      icon: mdi:dots-grid
+      input:
+        awtrix_topic:
+          name: MQTT notify topic
+          description: Notify topic of your AWTRIX, e.g. AWTRIX-xyz123/cmd/notify
+          default: AWTRIX-xyz123/cmd/notify
+          selector:
+            text:
+        duration:
+          name: Display duration
+          default: 50
+          selector:
+            number:
+              min: 5
+              max: 120
+              step: 1
+              unit_of_measurement: s
+    icons:
+      name: Flag icons
+      icon: mdi:flag
+      input:
+        icon_prefix:
+          name: Icon name prefix
+          description: Icon name = prefix + country code, e.g. flag- → flag-DE
+          default: flag-
+          selector:
+            text:
+        available_flags:
+          name: Available flags
+          description: Comma-separated country codes that have an icon on your AWTRIX.
+          default: AE,AT,BE,CH,CY,CZ,DE,DK,EG,ES,FR,GB,GR,HR,HU,IE,IT,NL,PL,PT,RO,SE,TR,US
+          selector:
+            text:
+        fallback_icon:
+          name: Fallback icon
+          description: Shown when there is no flag for the destination country.
+          default: flag-plane
+          selector:
+            text:
+    sound:
+      name: Sound & quiet hours
+      icon: mdi:volume-high
+      input:
+        sound_enabled:
+          name: Play sound
+          default: true
+          selector:
+            boolean:
+        sound_rtttl:
+          name: Melody (RTTTL)
+          default: "beep:d=4,o=6,b=200:16c"
+          selector:
+            text:
+        quiet_start:
+          name: Quiet hours start
+          description: No sound from this time on.
+          default: "22:00:00"
+          selector:
+            time:
+        quiet_end:
+          name: Quiet hours end
+          default: "09:00:00"
+          selector:
+            time:
+
+mode: queued
+max: 10
+
+triggers:
+  - trigger: event
+    event_type: flightradar24_entry
+
+variables:
+  topic: !input awtrix_topic
+  duration: !input duration
+  prefix: !input icon_prefix
+  flags: !input available_flags
+  fallback: !input fallback_icon
+  sound_enabled: !input sound_enabled
+  rtttl: !input sound_rtttl
+  f: "{{ trigger.event.data }}"
+  callsign: "{{ (f.callsign or f.flight_number or '?') | trim }}"
+  o_cc: "{{ (f.airport_origin_country_code or '') | upper }}"
+  d_cc: "{{ (f.airport_destination_country_code or '') | upper }}"
+  o_label: >-
+    {{ (f.airport_origin_city or f.airport_origin_code_iata or '?')
+       ~ (' (' ~ o_cc ~ ')' if o_cc else '') }}
+  d_label: >-
+    {{ (f.airport_destination_city or f.airport_destination_code_iata or '?')
+       ~ (' (' ~ d_cc ~ ')' if d_cc else '') }}
+  icon: >-
+    {{ (prefix ~ d_cc)
+       if d_cc in (flags.split(',') | map('trim') | map('upper') | list)
+       else fallback }}
+  payload: >-
+    {{ {
+      'text': [
+        {'text': callsign, 'color': '#FFCC00'},
+        {'text': ' | ', 'color': '#666666'},
+        {'text': o_label ~ ' -> ' ~ d_label, 'color': '#FFFFFF'}
+      ],
+      'icon': icon,
+      'durationMs': (duration * 1000) | int,
+      'stack': true
+    } }}
+
+conditions:
+  # Skip flights without a known route
+  - condition: template
+    value_template: "{{ (f.airport_destination_city or f.airport_destination_code_iata or '') != '' }}"
+
+actions:
+  - if:
+      - condition: template
+        value_template: "{{ sound_enabled }}"
+      - condition: not
+        conditions:
+          - condition: time
+            after: !input quiet_start
+            before: !input quiet_end
+    then:
+      - action: mqtt.publish
+        data:
+          topic: "{{ topic }}"
+          payload: "{{ dict(payload, soundRtttl=rtttl) | to_json }}"
+    else:
+      - action: mqtt.publish
+        data:
+          topic: "{{ topic }}"
+          payload: "{{ payload | to_json }}"
